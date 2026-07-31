@@ -1,5 +1,3 @@
-// frontend/src/types/index.ts
-
 export type Priority = "low" | "medium" | "high" | "fixed";
 
 export type ScheduleStatus =
