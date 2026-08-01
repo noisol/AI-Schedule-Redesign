@@ -5,15 +5,16 @@
 import React, { useState } from 'react';
 import ComparePopup from '../components/compare/ComparePopup';
 import TimeGrid from '../components/calendar/TimeGrid';
-import ScheduleModal from '../components/calendar/ScheduleModal'; // 👈 추가
-import { mockSchedules } from '../data/mockdata';
-import { ScheduleEvent } from '../types'; // 👈 추가
+import ScheduleModal from '../components/calendar/ScheduleModal';
+import { ScheduleEvent } from '../types';
+import { useSchedule } from '../hooks/useSchedule';
 
 export default function Home() {
-  const [schedules, setSchedules] = useState<ScheduleEvent[]>(mockSchedules);
+  const { schedules, updateSchedules, isLoaded } = useSchedule(); 
+  
   const [isPopupOpen, setIsPopupOpen] = useState(false);
 
-  // 모달 제어 상태 👈 추가
+  // 모달 제어 상태
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalInitialData, setModalInitialData] = useState<Partial<ScheduleEvent>>({});
 
@@ -51,8 +52,14 @@ export default function Home() {
       memo: "",
     };
 
-    setSchedules((prev) => [...prev, newSchedule]);
+    // 💡 핵심 수정: 화면 업데이트와 로컬 스토리지 저장을 동시에 처리하는 함수 호출
+    updateSchedules([...schedules, newSchedule]);
+
+    // 저장 후 모달 닫기
+    setIsModalOpen(false);
   };
+
+  if (!isLoaded) return null;
 
   return (
     <div className="min-h-screen bg-[#f3f4f6] p-6 flex flex-col items-center justify-center font-sans">
@@ -145,7 +152,7 @@ export default function Home() {
         onApply={handleApply}
       />
 
-      {/* ScheduleModal 연동 👈 추가 */}
+      {/* ScheduleModal 연동 */}
       <ScheduleModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
