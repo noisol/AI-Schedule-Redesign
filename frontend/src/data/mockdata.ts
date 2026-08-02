@@ -2,11 +2,22 @@
 
 import { ScheduleEvent } from "../types";
 
+const today = new Date();
+const getDateKey = (offsetDays: number) => {
+  const date = new Date(today);
+  date.setHours(0, 0, 0, 0);
+  date.setDate(today.getDate() + offsetDays);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export const mockSchedules: ScheduleEvent[] = [
   {
     id: "event-001",
     title: "운동",
-    date: "2026-07-27", // 월요일
+    date: getDateKey(0),
     startTime: "08:00",
     endTime: "09:30",
     durationMinutes: 90,
@@ -17,7 +28,7 @@ export const mockSchedules: ScheduleEvent[] = [
   {
     id: "event-002",
     title: "팀 주간 회의",
-    date: "2026-07-28", // 화요일
+    date: getDateKey(1),
     startTime: "10:00",
     endTime: "11:30",
     durationMinutes: 90,
@@ -28,7 +39,7 @@ export const mockSchedules: ScheduleEvent[] = [
   {
     id: "event-003",
     title: "캡스톤 멘토링",
-    date: "2026-07-31", // 금요일 (오늘)
+    date: getDateKey(3),
     startTime: "14:00",
     endTime: "16:00",
     durationMinutes: 120,

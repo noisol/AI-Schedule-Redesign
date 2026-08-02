@@ -1,72 +1,124 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
+import { ScheduleEvent } from "../../types";
 
 interface ComparePopupProps {
   isOpen: boolean;
   onClose: () => void;
   onApply: (selectedOption: number) => void;
+  currentSchedules?: ScheduleEvent[];
+  options: Array<{
+    id: number;
+    title: string;
+    summary: string;
+    rescheduledEvents: ScheduleEvent[];
+    changes: Array<{ eventId: string; action: string; reason: string }>;
+  }>;
+  selectedOptionId: number | null;
+  onSelectOption: (optionId: number | null) => void;
 }
 
-export default function ComparePopup({ isOpen, onClose, onApply }: ComparePopupProps) {
-  const [selectedOption, setSelectedOption] = useState<number | null>(null);
-
+export default function ComparePopup({
+  isOpen,
+  onClose,
+  onApply,
+  currentSchedules = [],
+  options,
+  selectedOptionId,
+  onSelectOption,
+}: ComparePopupProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed top-0 left-0 w-full h-full bg-black/60 flex items-center justify-center z-[9999]">
-      <div className="bg-white rounded-3xl shadow-2xl w-[900px] h-[600px] flex flex-col p-8 border border-gray-200 relative">
-        
-        <div className="mb-6 text-center">
-          <h2 className="text-3xl font-bold text-gray-800">AI 일정 재설계 제안</h2>
-          <p className="text-gray-500 mt-2">원하시는 일정(1안, 2안, 3안)을 눌러서 선택해주세요.</p>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm">
+      <div className="glass-panel relative flex h-[760px] max-h-[92vh] w-full max-w-6xl flex-col rounded-[34px] p-6 shadow-[0_40px_120px_rgba(15,23,42,0.18)]">
+        <div className="mb-5 shrink-0 text-center">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            AI 제안 결과
+          </div>
+          <h2 className="text-[24px] font-semibold tracking-[-0.02em] text-slate-900">3가지 재설계안 중 하나를 골라보세요.</h2>
+          <p className="mt-2 text-sm text-slate-500">각 제안은 오늘의 흐름을 더 자연스럽게 이어주도록 구성되어 있습니다.</p>
         </div>
 
-        <div className="grid grid-cols-3 gap-6 flex-1">
-          {[1, 2, 3].map((option) => (
+        <div className="grid min-h-0 flex-1 grid-cols-3 gap-4 overflow-hidden">
+          {options.map((option) => (
             <div
-              key={option}
-              onClick={() => setSelectedOption(option)}
-              className={`border-4 rounded-xl p-6 cursor-pointer flex flex-col ${
-                selectedOption === option 
-                  ? 'border-blue-600 bg-blue-50' 
-                  : 'border-gray-300'
+              key={option.id}
+              onClick={() => onSelectOption(option.id)}
+              className={`flex min-h-0 cursor-pointer flex-col rounded-[24px] border p-4 transition ${
+                selectedOptionId === option.id
+                  ? "border-sky-300/80 bg-sky-50/85 shadow-[0_16px_36px_rgba(14,116,144,0.14)]"
+                  : "border-white/80 bg-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]"
               }`}
             >
-              <h3 className="text-2xl font-bold mb-4 text-center pb-4 border-b-2 border-gray-200">{option}안</h3>
-              <div className="flex-1 flex items-center justify-center text-gray-500 font-medium text-center">
-                {option}안 상세 내역
+              <h3 className="mb-3 border-b border-slate-200/70 pb-2 text-[16px] font-semibold text-slate-900">{option.title}</h3>
+              <p className="text-sm leading-6 text-slate-600">{option.summary}</p>
+
+              <div className="mt-4 min-h-0">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">변경 사항</div>
+                <div className="max-h-[180px] space-y-2 overflow-y-auto pr-1 text-xs text-slate-600">
+                  {option.changes.map((change) => (
+                    <div key={`${option.id}-${change.eventId}`} className="rounded-[14px] border border-white/70 bg-white/80 p-2">
+                      <div className="font-semibold text-slate-700">{change.action}</div>
+                      <div className="mt-0.5">{change.reason}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3">
+                <div>
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">기존 일정</div>
+                  <div className="max-h-[120px] space-y-1 overflow-y-auto pr-1 text-xs text-slate-600">
+                    {currentSchedules.slice(0, 4).map((event) => (
+                      <div key={`current-${event.id}`} className="rounded-[12px] border border-slate-200/70 bg-slate-50/80 px-2 py-1.5">
+                        {event.title} · {event.startTime} - {event.endTime}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">예상 일정</div>
+                  <div className="max-h-[120px] space-y-1 overflow-y-auto pr-1 text-xs text-slate-600">
+                    {option.rescheduledEvents.slice(0, 6).map((event) => (
+                      <div key={event.id} className="rounded-[12px] border border-slate-200/70 bg-white/70 px-2 py-1.5">
+                        {event.title} · {event.startTime} - {event.endTime}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           ))}
         </div>
 
-        <div className="flex justify-center items-center mt-8 pt-8 border-t border-gray-200 gap-10">
+        <div className="mt-5 flex shrink-0 items-center justify-center gap-4 border-t border-slate-200/70 pt-5">
           <button
             onClick={() => {
-              setSelectedOption(null);
+              onSelectOption(null);
               onClose();
             }}
-            className="px-12 py-4 bg-gray-200 text-gray-800 font-bold text-xl rounded-xl hover:bg-gray-300"
+            className="rounded-[16px] border border-slate-200/80 bg-white/70 px-8 py-3 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:bg-white"
           >
             수정 취소
           </button>
-          
+
           <button
             onClick={() => {
-              if (selectedOption) {
-                onApply(selectedOption);
+              if (selectedOptionId) {
+                onApply(selectedOptionId);
               } else {
-                alert("일정을 추가하려면 먼저 1안, 2안, 3안 중 하나를 선택해주세요.");
+                alert("일정을 적용하려면 먼저 하나의 안을 선택해주세요.");
               }
             }}
-            className={`px-12 py-4 font-bold text-xl rounded-xl ${
-              selectedOption 
-                ? 'bg-black text-white' 
-                : 'bg-gray-400 text-white cursor-not-allowed'
+            className={`rounded-[16px] px-8 py-3 text-sm font-semibold text-white transition ${
+              selectedOptionId ? "bg-slate-900 hover:-translate-y-0.5 hover:bg-slate-800" : "cursor-not-allowed bg-slate-400"
             }`}
           >
-            일정 추가
+            일정 적용
           </button>
         </div>
       </div>
