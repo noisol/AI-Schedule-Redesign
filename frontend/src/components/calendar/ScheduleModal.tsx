@@ -1,91 +1,126 @@
 // frontend/src/components/calendar/ScheduleModal.tsx
 
-import { useState, useEffect } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ScheduleEvent } from "../../types";
 
 interface ScheduleModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (event: Partial<ScheduleEvent>) => void;
-  initialData?: Partial<ScheduleEvent>; // 빈 공간 클릭 시 초기 시간값 등을 넘겨받음
+  onSave: (event: Partial<ScheduleEvent>) => boolean | void;
+  onDelete?: (eventId: string) => void;
+  initialData?: Partial<ScheduleEvent>;
+  mode?: "create" | "edit";
+  existingEvent?: ScheduleEvent | null;
 }
 
-export default function ScheduleModal({ isOpen, onClose, onSave, initialData }: ScheduleModalProps) {
+export default function ScheduleModal({
+  isOpen,
+  onClose,
+  onSave,
+  onDelete,
+  initialData,
+  mode = "create",
+  existingEvent,
+}: ScheduleModalProps) {
   const [title, setTitle] = useState("");
+  const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("10:00");
   const [priority, setPriority] = useState<ScheduleEvent["priority"]>("medium");
 
-  // 모달이 열릴 때 초기 데이터 세팅
   useEffect(() => {
     if (isOpen) {
-      setTitle(initialData?.title || "");
-      setStartTime(initialData?.startTime || "09:00");
-      setEndTime(initialData?.endTime || "10:00");
-      setPriority(initialData?.priority || "medium");
+      const eventData = existingEvent ?? initialData;
+      setTitle(eventData?.title || "");
+      setDate(eventData?.date || "");
+      setStartTime(eventData?.startTime || "09:00");
+      setEndTime(eventData?.endTime || "10:00");
+      setPriority(eventData?.priority || "medium");
     }
-  }, [isOpen, initialData]);
+  }, [isOpen, existingEvent, initialData]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    onSave({
+    const shouldClose = onSave({
+      id: existingEvent?.id,
       title,
+      date: existingEvent?.date ?? (date || initialData?.date),
       startTime,
       endTime,
       priority,
-      status: "scheduled",
+      status: existingEvent?.status ?? "scheduled",
+      memo: existingEvent?.memo ?? "",
     });
-    onClose();
+
+    if (shouldClose !== false) {
+      onClose();
+    }
+  };
+
+  const handleDelete = () => {
+    if (existingEvent?.id && onDelete) {
+      onDelete(existingEvent.id);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-fade-in-up">
-        <h2 className="text-xl font-bold mb-4 text-gray-800">새 일정 추가</h2>
-        
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm">
+      <div className="glass-panel w-full max-w-md rounded-[28px] p-6 shadow-[0_30px_90px_rgba(15,23,42,0.12)]">
+        <h2 className="mb-4 text-[22px] font-semibold tracking-[-0.02em] text-slate-900">
+          {mode === "edit" ? "일정 수정" : "새 일정 추가"}
+        </h2>
+
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* 일정 제목 */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">일정 제목</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">일정 제목</label>
             <input
               type="text"
               required
-              className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+              className="w-full rounded-[14px] border border-white/70 bg-white/80 px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100"
               placeholder="예: 팀 주간 회의"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
           </div>
 
-          {/* 시간 설정 */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">날짜</label>
+            <input
+              type="date"
+              required
+              className="w-full rounded-[14px] border border-white/70 bg-white/80 px-3 py-2.5 text-sm text-slate-700 outline-none"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
+
           <div className="flex gap-4">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">시작 시간</label>
+              <label className="mb-1 block text-sm font-medium text-slate-700">시작 시간</label>
               <input
                 type="time"
                 required
-                className="w-full border border-gray-300 rounded-lg p-2.5 outline-none"
+                className="w-full rounded-[14px] border border-white/70 bg-white/80 px-3 py-2.5 text-sm text-slate-700 outline-none"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
               />
             </div>
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">종료 시간</label>
+              <label className="mb-1 block text-sm font-medium text-slate-700">종료 시간</label>
               <input
                 type="time"
                 required
-                className="w-full border border-gray-300 rounded-lg p-2.5 outline-none"
+                className="w-full rounded-[14px] border border-white/70 bg-white/80 px-3 py-2.5 text-sm text-slate-700 outline-none"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
               />
             </div>
           </div>
 
-          {/* 우선순위 */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">우선순위 (색상)</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">우선순위</label>
             <div className="flex gap-2">
               {(["high", "medium", "low", "fixed"] as const).map((p) => (
                 <label key={p} className="flex-1 cursor-pointer">
@@ -97,7 +132,7 @@ export default function ScheduleModal({ isOpen, onClose, onSave, initialData }: 
                     onChange={() => setPriority(p)}
                     className="sr-only peer"
                   />
-                  <div className="text-center py-2 text-sm border rounded-lg peer-checked:ring-2 peer-checked:ring-blue-500 hover:bg-gray-50 transition">
+                  <div className="rounded-[14px] border border-white/70 bg-white/70 py-2 text-center text-sm text-slate-700 transition peer-checked:border-sky-300 peer-checked:bg-sky-50/80">
                     {p === "high" && "🔴 높음"}
                     {p === "medium" && "🟠 중간"}
                     {p === "low" && "🔵 낮음"}
@@ -108,18 +143,26 @@ export default function ScheduleModal({ isOpen, onClose, onSave, initialData }: 
             </div>
           </div>
 
-          {/* 버튼 영역 */}
-          <div className="flex justify-end gap-2 pt-4 mt-2 border-t">
+          <div className="mt-2 flex justify-end gap-2 border-t border-slate-200/70 pt-4">
+            {mode === "edit" && onDelete && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                className="rounded-[14px] bg-rose-50/80 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100/90"
+              >
+                삭제
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+              className="rounded-[14px] border border-slate-200/80 bg-white/70 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white"
             >
               취소
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
+              className="rounded-[14px] bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
             >
               저장
             </button>
