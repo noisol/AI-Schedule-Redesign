@@ -4,6 +4,8 @@ interface EventCardProps {
   event: ScheduleEvent;
   visibleStartMinutes?: number;
   topOffset?: number;
+  displayStartMinutes?: number;
+  displayEndMinutes?: number;
   onClick?: () => void;
 }
 
@@ -12,9 +14,16 @@ const timeToMinutes = (time: string) => {
   return hours * 60 + minutes;
 };
 
-export default function EventCard({ event, visibleStartMinutes = 0, topOffset = 0, onClick }: EventCardProps) {
-  const startMinutes = timeToMinutes(event.startTime) - visibleStartMinutes + topOffset;
-  const endMinutes = timeToMinutes(event.endTime) - visibleStartMinutes + topOffset;
+export default function EventCard({
+  event,
+  visibleStartMinutes = 0,
+  topOffset = 0,
+  displayStartMinutes,
+  displayEndMinutes,
+  onClick,
+}: EventCardProps) {
+  const startMinutes = (displayStartMinutes ?? timeToMinutes(event.startTime)) - visibleStartMinutes + topOffset;
+  const endMinutes = (displayEndMinutes ?? timeToMinutes(event.endTime)) - visibleStartMinutes + topOffset;
   const duration = Math.max(36, endMinutes - startMinutes);
 
   const getPriorityStyles = (priority: string) => {
@@ -51,12 +60,6 @@ export default function EventCard({ event, visibleStartMinutes = 0, topOffset = 
       <div className="mt-1 text-[9px] leading-tight whitespace-nowrap opacity-80">
         {event.startTime} - {event.endTime}
       </div>
-
-      {event.status === "completed" && (
-        <div className="absolute inset-0 flex items-center justify-center bg-white/60 text-[10px] font-semibold text-slate-700 backdrop-blur-[1px]">
-          완료됨
-        </div>
-      )}
     </div>
   );
 }

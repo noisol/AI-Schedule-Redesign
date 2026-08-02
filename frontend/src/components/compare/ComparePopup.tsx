@@ -2,6 +2,7 @@
 
 import React from "react";
 import { ScheduleEvent } from "../../types";
+import { getScheduleActionLabel } from "../../lib/schedule-change";
 
 interface ComparePopupProps {
   isOpen: boolean;
@@ -43,56 +44,68 @@ export default function ComparePopup({
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-3 gap-4 overflow-hidden">
-          {options.map((option) => (
-            <div
-              key={option.id}
-              onClick={() => onSelectOption(option.id)}
-              className={`flex min-h-0 cursor-pointer flex-col rounded-[24px] border p-4 transition ${
-                selectedOptionId === option.id
-                  ? "border-sky-300/80 bg-sky-50/85 shadow-[0_16px_36px_rgba(14,116,144,0.14)]"
-                  : "border-white/80 bg-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]"
-              }`}
-            >
+          {options.map((option) => {
+            const displayedChanges = option.changes.filter((change) => change.action !== "kept");
+            const relatedIds = new Set(displayedChanges.map((change) => change.eventId));
+            const relatedCurrentSchedules = currentSchedules.filter((event) => relatedIds.has(event.id));
+            const relatedRescheduledEvents = option.rescheduledEvents.filter((event) => relatedIds.has(event.id));
+
+            return (
+              <div
+                key={option.id}
+                onClick={() => onSelectOption(option.id)}
+                className={`flex min-h-0 cursor-pointer flex-col overflow-y-auto rounded-[24px] border p-4 pr-3 transition ${
+                  selectedOptionId === option.id
+                    ? "border-sky-300/80 bg-sky-50/85 shadow-[0_16px_36px_rgba(14,116,144,0.14)]"
+                    : "border-white/80 bg-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]"
+                }`}
+              >
               <h3 className="mb-3 border-b border-slate-200/70 pb-2 text-[16px] font-semibold text-slate-900">{option.title}</h3>
               <p className="text-sm leading-6 text-slate-600">{option.summary}</p>
 
               <div className="mt-4 min-h-0">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">변경 사항</div>
-                <div className="max-h-[180px] space-y-2 overflow-y-auto pr-1 text-xs text-slate-600">
-                  {option.changes.map((change) => (
-                    <div key={`${option.id}-${change.eventId}`} className="rounded-[14px] border border-white/70 bg-white/80 p-2">
-                      <div className="font-semibold text-slate-700">{change.action}</div>
+                <div className="space-y-2 text-xs text-slate-600">
+                  {displayedChanges.map((change, changeIndex) => (
+                    <div key={`${option.id}-${change.eventId}-${changeIndex}`} className="rounded-[14px] border border-white/70 bg-white/80 p-2">
+                      <div className="font-semibold text-slate-700">{getScheduleActionLabel(change.action)}</div>
                       <div className="mt-0.5">{change.reason}</div>
                     </div>
                   ))}
+                  {displayedChanges.length === 0 && <div className="text-slate-400">변경된 일정이 없습니다.</div>}
                 </div>
               </div>
 
               <div className="mt-4 flex min-h-0 flex-1 flex-col gap-3">
                 <div>
                   <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">기존 일정</div>
-                  <div className="max-h-[120px] space-y-1 overflow-y-auto pr-1 text-xs text-slate-600">
-                    {currentSchedules.slice(0, 4).map((event) => (
+                  <div className="space-y-1 text-xs text-slate-600">
+                    {relatedCurrentSchedules.map((event) => (
                       <div key={`current-${event.id}`} className="rounded-[12px] border border-slate-200/70 bg-slate-50/80 px-2 py-1.5">
-                        {event.title} · {event.startTime} - {event.endTime}
+                        <div className="font-medium text-slate-700">{event.title}</div>
+                        <div className="mt-0.5 text-[11px] text-slate-500">{event.date} · {event.startTime} - {event.endTime}</div>
                       </div>
                     ))}
+                    {relatedCurrentSchedules.length === 0 && <div className="text-slate-400">기존 일정 없음</div>}
                   </div>
                 </div>
 
                 <div>
                   <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">예상 일정</div>
-                  <div className="max-h-[120px] space-y-1 overflow-y-auto pr-1 text-xs text-slate-600">
-                    {option.rescheduledEvents.slice(0, 6).map((event) => (
+                  <div className="space-y-1 text-xs text-slate-600">
+                    {relatedRescheduledEvents.map((event) => (
                       <div key={event.id} className="rounded-[12px] border border-slate-200/70 bg-white/70 px-2 py-1.5">
-                        {event.title} · {event.startTime} - {event.endTime}
+                        <div className="font-medium text-slate-700">{event.title}</div>
+                        <div className="mt-0.5 text-[11px] text-slate-500">{event.date} · {event.startTime} - {event.endTime}</div>
                       </div>
                     ))}
+                    {relatedRescheduledEvents.length === 0 && <div className="text-slate-400">취소되어 예상 일정에서 제외됨</div>}
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
 
         <div className="mt-5 flex shrink-0 items-center justify-center gap-4 border-t border-slate-200/70 pt-5">

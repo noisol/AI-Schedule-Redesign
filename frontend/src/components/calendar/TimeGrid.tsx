@@ -35,7 +35,6 @@ const getWeekDays = (weekStart: Date) => {
 };
 
 export default function TimeGrid({ events, weekStart, sleepBedtime, sleepWakeTime, onCellClick, onEventClick }: TimeGridProps) {
-  const hours = Array.from({ length: 24 }, (_, i) => i);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const toMinutes = (time: string) => {
@@ -46,10 +45,13 @@ export default function TimeGrid({ events, weekStart, sleepBedtime, sleepWakeTim
   // 수면 구간은 캘린더에서 숨기고, 실제 보이는 시간대만 남긴다.
   const bedtimeMinutes = sleepBedtime ? toMinutes(sleepBedtime) : null;
   const wakeTimeMinutes = sleepWakeTime ? toMinutes(sleepWakeTime) : null;
-  const hasSleepWindow = bedtimeMinutes !== null && wakeTimeMinutes !== null && bedtimeMinutes > wakeTimeMinutes;
-  // 취침 시간 이후부터 기상 시간 전까지는 화면에서 제외한다.
-  const visibleStartMinutes = hasSleepWindow ? wakeTimeMinutes : 0;
-  const visibleEndMinutes = hasSleepWindow ? bedtimeMinutes : 24 * 60;
+  const visibleStartMinutes = wakeTimeMinutes ?? 0;
+  // 00:00처럼 취침 시간이 기상 시간보다 이르면 다음 날 시간으로 취급한다.
+  const visibleEndMinutes = bedtimeMinutes === null
+    ? 24 * 60
+    : bedtimeMinutes <= visibleStartMinutes
+      ? bedtimeMinutes + 24 * 60
+      : bedtimeMinutes;
   const visibleDurationMinutes = Math.max(60, visibleEndMinutes - visibleStartMinutes);
   const topOffset = 24;
 
@@ -69,25 +71,29 @@ export default function TimeGrid({ events, weekStart, sleepBedtime, sleepWakeTim
   };
 
   const visibleHours = Array.from({ length: Math.max(1, Math.floor(visibleDurationMinutes / 60) + 1) }, (_, index) => visibleStartMinutes + index * 60);
-  const visibleEvents = hasSleepWindow
-    ? events.filter((event) => {
-        const startMinutes = toMinutes(event.startTime);
-        const endMinutes = toMinutes(event.endTime);
-        return startMinutes >= visibleStartMinutes && endMinutes <= visibleEndMinutes;
-      })
-    : events;
+  const toVisibleMinutes = (time: string) => {
+    const minutes = toMinutes(time);
+    return visibleEndMinutes > 24 * 60 && minutes < visibleStartMinutes
+      ? minutes + 24 * 60
+      : minutes;
+  };
+  const visibleEvents = events.filter((event) => {
+    const startMinutes = toVisibleMinutes(event.startTime);
+    let endMinutes = toVisibleMinutes(event.endTime);
+    if (endMinutes <= startMinutes) endMinutes += 24 * 60;
+    return startMinutes >= visibleStartMinutes && endMinutes <= visibleEndMinutes;
+  });
   // 수면 구간이 잘린 뒤의 위치를 기준으로 시간축과 이벤트를 다시 배치한다.
   const getPosition = (minutes: number) => {
-    const base = hasSleepWindow ? minutes - visibleStartMinutes : minutes;
-    return base + topOffset;
+    return minutes - visibleStartMinutes + topOffset;
   };
 
   useEffect(() => {
-    // 초기 진입 시에는 오전 7시쯤으로 스크롤 위치를 맞춘다.
+    // 표시 범위 자체가 기상 시간부터 시작하므로 항상 맨 위에서 보여준다.
     if (containerRef.current) {
-      containerRef.current.scrollTop = 7 * 60;
+      containerRef.current.scrollTop = 0;
     }
-  }, []);
+  }, [visibleStartMinutes, visibleEndMinutes]);
 
   const weekDays = getWeekDays(weekStart);
 
@@ -139,7 +145,7 @@ export default function TimeGrid({ events, weekStart, sleepBedtime, sleepWakeTim
 
               return (
                 <div key={day.date} className="relative h-full">
-                  {visibleHours.map((minute) => {
+                  {visibleHours.slice(0, -1).map((minute) => {
                     const timeString = formatTimeString(minute);
                     return (
                       <div
@@ -151,9 +157,23 @@ export default function TimeGrid({ events, weekStart, sleepBedtime, sleepWakeTim
                     );
                   })}
 
-                  {dayEvents.map((event) => (
-                    <EventCard key={event.id} event={event} visibleStartMinutes={visibleStartMinutes} topOffset={topOffset} onClick={() => onEventClick?.(event)} />
-                  ))}
+                  {dayEvents.map((event) => {
+                    const displayStartMinutes = toVisibleMinutes(event.startTime);
+                    let displayEndMinutes = toVisibleMinutes(event.endTime);
+                    if (displayEndMinutes <= displayStartMinutes) displayEndMinutes += 24 * 60;
+
+                    return (
+                      <EventCard
+                        key={event.id}
+                        event={event}
+                        visibleStartMinutes={visibleStartMinutes}
+                        topOffset={topOffset}
+                        displayStartMinutes={displayStartMinutes}
+                        displayEndMinutes={displayEndMinutes}
+                        onClick={() => onEventClick?.(event)}
+                      />
+                    );
+                  })}
                 </div>
               );
             })}

@@ -50,8 +50,6 @@ export default function ScheduleModal({
       startTime,
       endTime,
       priority,
-      status: existingEvent?.status ?? "scheduled",
-      memo: existingEvent?.memo ?? "",
     });
 
     if (shouldClose !== false) {
