@@ -20,10 +20,7 @@ export const mockSchedules: ScheduleEvent[] = [
     date: getDateKey(0),
     startTime: "08:00",
     endTime: "09:30",
-    durationMinutes: 90,
-    priority: "high",
-    status: "scheduled",
-    memo: "아침 유산소"
+    priority: "high"
   },
   {
     id: "event-002",
@@ -31,10 +28,7 @@ export const mockSchedules: ScheduleEvent[] = [
     date: getDateKey(1),
     startTime: "10:00",
     endTime: "11:30",
-    durationMinutes: 90,
-    priority: "high",
-    status: "scheduled",
-    memo: "주간 진행 상황 공유"
+    priority: "high"
   },
   {
     id: "event-003",
@@ -42,9 +36,6 @@ export const mockSchedules: ScheduleEvent[] = [
     date: getDateKey(3),
     startTime: "14:00",
     endTime: "16:00",
-    durationMinutes: 120,
-    priority: "fixed",
-    status: "scheduled",
-    memo: "중간 점검 발표"
+    priority: "fixed"
   }
 ];

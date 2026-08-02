@@ -2,25 +2,55 @@
 
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import ComparePopup from '../components/compare/ComparePopup';
 import TimeGrid from '../components/calendar/TimeGrid';
 import ScheduleModal from '../components/calendar/ScheduleModal';
 import { mockSchedules } from '../data/mockdata';
 import {
-  buildMockRescheduleOptions,
   loadDraftInput,
   loadLastResult,
   loadSchedules,
   loadSleepPreference,
   loadWeekStart,
   saveDraftInput,
+  clearLastResult,
   saveLastResult,
   saveSchedules,
   saveSleepPreference,
   saveWeekStart,
 } from '../lib/storage';
+import type { RescheduleOption } from '../lib/storage';
+import { rescheduleResponseSchema } from '../lib/validation/reschedule';
+import { getScheduleActionLabel } from '../lib/schedule-change';
 import { ScheduleEvent } from '../types';
+
+const subscribeToHydration = () => () => {};
+
+const formatEventSchedule = (event: ScheduleEvent) =>
+  `${event.date} · ${event.startTime} - ${event.endTime}`;
+
+const mergeRescheduledEvents = (
+  currentEvents: ScheduleEvent[],
+  proposedEvents: ScheduleEvent[],
+  changes: Array<{ eventId: string; action: string }>,
+) => {
+  const cancelledIds = new Set(
+    changes.filter((change) => change.action === 'cancelled').map((change) => change.eventId),
+  );
+  const proposedById = new Map(proposedEvents.map((event) => [event.id, event]));
+
+  const merged = currentEvents.flatMap((event) => {
+    if (cancelledIds.has(event.id)) return [];
+    return [proposedById.get(event.id) ?? event];
+  });
+  const currentIds = new Set(currentEvents.map((event) => event.id));
+
+  return [
+    ...merged,
+    ...proposedEvents.filter((event) => !currentIds.has(event.id) && !cancelledIds.has(event.id)),
+  ];
+};
 
 const formatDateKey = (date: Date) => {
   const year = date.getFullYear();
@@ -47,6 +77,11 @@ const formatWeekLabel = (weekStart: Date) => {
 };
 
 export default function Home() {
+  const isHydrated = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
   // 저장된 일정이 있으면 불러오고, 없으면 기본 목데이터를 사용한다.
   const [schedules, setSchedules] = useState<ScheduleEvent[]>(() => loadSchedules(mockSchedules));
   const [isPopupOpen, setIsPopupOpen] = useState(false);
@@ -56,7 +91,10 @@ export default function Home() {
   // 입력창 초안, 최근 AI 제안, 현재 주차, 수면 패턴 상태를 로컬스토리지에서 복원한다.
   const [userInput, setUserInput] = useState(() => loadDraftInput(''));
   const [selectedOptionId, setSelectedOptionId] = useState<number | null>(null);
-  const [lastResult, setLastResult] = useState<ReturnType<typeof buildMockRescheduleOptions>[number] | null>(() => loadLastResult());
+  const [lastResult, setLastResult] = useState<RescheduleOption | null>(() => loadLastResult());
+  const [rescheduleOptions, setRescheduleOptions] = useState<RescheduleOption[]>([]);
+  const [isRescheduling, setIsRescheduling] = useState(false);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
   const [weekStart, setWeekStart] = useState<Date>(() => {
     const savedWeekStart = loadWeekStart();
     return savedWeekStart ? new Date(savedWeekStart) : getWeekStart(new Date());
@@ -85,15 +123,6 @@ export default function Home() {
     saveDraftInput(userInput);
   }, [userInput]);
 
-  const rescheduleOptions = useMemo(
-    () =>
-      buildMockRescheduleOptions(schedules, userInput, {
-        bedtime: sleepBedtime,
-        wakeTime: sleepWakeTime,
-      }),
-    [schedules, userInput, sleepBedtime, sleepWakeTime],
-  );
-
   const closeModal = () => {
     setIsModalOpen(false);
     setModalMode('create');
@@ -106,10 +135,11 @@ export default function Home() {
       return;
     }
 
-    const nextSchedules = chosenOption.rescheduledEvents.map((event) => ({
-      ...event,
-      id: event.id,
-    }));
+    const nextSchedules = mergeRescheduledEvents(
+      schedules,
+      chosenOption.rescheduledEvents,
+      chosenOption.changes,
+    );
 
     setSchedules(nextSchedules);
     setLastResult(chosenOption);
@@ -184,8 +214,6 @@ export default function Home() {
       startTime: candidateStart,
       endTime: candidateEnd,
       priority: newEventData.priority || 'medium',
-      status: newEventData.status || 'scheduled',
-      memo: newEventData.memo ?? '',
     } as Partial<ScheduleEvent>;
 
     const currentId = modalMode === 'edit' && newEventData.id ? newEventData.id : undefined;
@@ -206,10 +234,7 @@ export default function Home() {
                 date: candidateDate,
                 startTime: candidateStart,
                 endTime: candidateEnd,
-                durationMinutes: getDurationMinutes(candidateStart, candidateEnd),
                 priority: newEventData.priority || event.priority,
-                status: newEventData.status || event.status,
-                memo: newEventData.memo ?? event.memo ?? '',
               }
             : event,
         ),
@@ -223,10 +248,7 @@ export default function Home() {
       date: candidateDate,
       startTime: candidateStart,
       endTime: candidateEnd,
-      durationMinutes: getDurationMinutes(candidateStart, candidateEnd),
       priority: newEventData.priority || 'medium',
-      status: 'scheduled',
-      memo: newEventData.memo ?? '',
     };
 
     setSchedules((prev) => [...prev, newSchedule]);
@@ -240,41 +262,96 @@ export default function Home() {
     closeModal();
   };
 
-  // 사용자가 입력한 상황을 바탕으로 AI 제안 팝업을 열어준다.
-  const handleSubmitPrompt = (event: React.FormEvent) => {
+  // 사용자가 입력한 상황과 현재 일정을 서버로 보내 실제 AI 제안을 받는다.
+  const handleSubmitPrompt = async (event: React.FormEvent) => {
     event.preventDefault();
-    setIsPopupOpen(true);
-  };
+    if (!userInput.trim() || isRescheduling) return;
 
-  // 일정 완료 상태를 빠르게 토글할 수 있도록 한다.
-  const toggleEventStatus = (eventId: string) => {
-    setSchedules((prev) =>
-      prev.map((event) => {
-        if (event.id !== eventId) {
-          return event;
-        }
+    const now = new Date();
+    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-        const nextStatus: ScheduleEvent['status'] =
-          event.status === 'completed' ? 'scheduled' : 'completed';
+    setIsRescheduling(true);
+    setRescheduleError(null);
+
+    try {
+      const response = await fetch('/api/reschedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: `request-${Date.now()}`,
+          requestedAt: now.toISOString(),
+          currentDate: formatDateKey(now),
+          currentTime,
+          timezone: 'Asia/Seoul',
+          userInput: userInput.trim(),
+          preferences: {
+            wakeUpTime: sleepWakeTime,
+            sleepTime: sleepBedtime,
+            timezone: 'Asia/Seoul',
+          },
+          schedules,
+        }),
+      });
+
+      const body: unknown = await response.json();
+      if (!response.ok) {
+        const message = typeof body === 'object' && body !== null && 'error' in body
+          ? String((body as { error?: { message?: string } }).error?.message ?? 'AI 일정 재설계에 실패했습니다.')
+          : 'AI 일정 재설계에 실패했습니다.';
+        throw new Error(message);
+      }
+
+      const result = rescheduleResponseSchema.parse(body);
+      if (!result.success) {
+        throw new Error(result.warnings[0] ?? '재설계 가능한 일정을 만들지 못했습니다.');
+      }
+
+      const nextOptions: RescheduleOption[] = result.options.map((option, index) => {
+        const changes = option.changes.map((change) => ({
+          eventId: change.eventId,
+          action: change.action,
+          reason: change.reason,
+        }));
 
         return {
-          ...event,
-          status: nextStatus,
+          id: index + 1,
+          title: `${index + 1}안`,
+          summary: option.summary,
+          originalEvents: schedules.map((event) => ({ ...event })),
+          rescheduledEvents: mergeRescheduledEvents(schedules, option.rescheduledEvents, changes),
+          changes,
         };
-      }),
-    );
+      });
+
+      setRescheduleOptions(nextOptions);
+      setSelectedOptionId(null);
+      setIsPopupOpen(true);
+    } catch (error) {
+      setRescheduleError(error instanceof Error ? error.message : 'AI 일정 재설계에 실패했습니다.');
+    } finally {
+      setIsRescheduling(false);
+    }
   };
 
-  const handleDeleteSelected = () => {
-    if (!lastResult) {
+  const handleUndoLastReschedule = () => {
+    if (!lastResult?.originalEvents) {
+      window.alert('되돌릴 수 있는 최근 AI 재설계 기록이 없습니다.');
       return;
     }
 
-    const selectedIds = new Set(lastResult.rescheduledEvents.map((event) => event.id));
-    setSchedules((prev) => prev.filter((event) => !selectedIds.has(event.id)));
+    setSchedules(lastResult.originalEvents.map((event) => ({ ...event })));
+    setLastResult(null);
+    setSelectedOptionId(null);
+    setRescheduleOptions([]);
+    clearLastResult();
   };
 
   const selectedEvent = schedules.find((event) => event.id === selectedEventId) ?? null;
+  const lastResultChanges = lastResult?.changes.filter((change) => change.action !== 'kept') ?? [];
+
+  if (!isHydrated) {
+    return <div className="min-h-screen" aria-hidden="true" />;
+  }
 
   return (
     <div className="relative min-h-screen overflow-hidden p-4 sm:p-6 lg:p-8 font-sans text-slate-800">
@@ -366,10 +443,11 @@ export default function Home() {
                   + 일정 추가
                 </button>
                 <button
-                  onClick={handleDeleteSelected}
-                  className="rounded-xl border border-rose-200/80 bg-rose-50/80 px-3 py-2 text-[11px] font-semibold text-rose-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] transition hover:-translate-y-0.5 hover:bg-rose-100/90"
+                  onClick={handleUndoLastReschedule}
+                  disabled={!lastResult?.originalEvents}
+                  className="rounded-xl border border-rose-200/80 bg-rose-50/80 px-3 py-2 text-[11px] font-semibold text-rose-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] transition hover:-translate-y-0.5 hover:bg-rose-100/90 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
                 >
-                  - 최근 제안 삭제
+                  ↩ 최근 재설계 되돌리기
                 </button>
               </div>
             </div>
@@ -394,14 +472,6 @@ export default function Home() {
                   {selectedEvent ? `${selectedEvent.title} · ${selectedEvent.startTime}` : '카드를 눌러 일정 상세를 확인해 보세요.'}
                 </div>
               </div>
-              {selectedEvent && (
-                <button
-                  onClick={() => toggleEventStatus(selectedEvent.id)}
-                  className="rounded-full border border-slate-200/80 bg-white/80 px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-white"
-                >
-                  {selectedEvent.status === 'completed' ? '완료 해제' : '완료 처리'}
-                </button>
-              )}
             </div>
           </div>
 
@@ -413,38 +483,66 @@ export default function Home() {
 
             <div className="mb-4 flex-1 min-h-0 overflow-y-auto rounded-[24px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(247,250,255,0.86))] p-4">
               <div className="space-y-3 text-xs text-slate-600">
-                <div className="rounded-[18px] border border-sky-100/80 bg-sky-50/80 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
-                  <div className="mb-1 font-semibold text-slate-800">현재 일정</div>
-                  <div>{schedules.length}개 일정이 저장되어 있습니다.</div>
-                </div>
-
                 {lastResult ? (
                   <div className="rounded-[18px] border border-emerald-100/80 bg-emerald-50/80 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
-                    <div className="mb-1 font-semibold text-slate-800">최근 제안</div>
-                    <div>{lastResult.title}</div>
-                    <div className="mt-1 text-[11px] text-slate-500">{lastResult.summary}</div>
+                    <div className="mb-1 font-semibold text-slate-800">선택한 제안</div>
+                    <div className="font-medium text-emerald-900">{lastResult.title}</div>
+                    <div className="mt-1 leading-5 text-slate-600">{lastResult.summary}</div>
+                    <div className="mt-3 border-t border-emerald-200/70 pt-3">
+                      <div className="mb-2 font-semibold text-slate-700">선택한 안의 변경 내용</div>
+                      <div className="space-y-2">
+                        {lastResultChanges.map((change, changeIndex) => {
+                          const originalEvent = lastResult.originalEvents?.find((event) => event.id === change.eventId);
+                          const changedEvent = lastResult.rescheduledEvents.find((event) => event.id === change.eventId);
+                          return (
+                            <div key={`last-${change.eventId}-${changeIndex}`} className="rounded-xl bg-white/70 p-2">
+                              <div className="font-semibold text-slate-700">{getScheduleActionLabel(change.action)}</div>
+                              <div className="mt-0.5 leading-5 text-slate-600">{change.reason}</div>
+                              <div className="mt-2 space-y-1 rounded-lg bg-slate-50/80 p-2 text-[11px]">
+                                <div className="text-slate-500">
+                                  <span className="font-semibold text-slate-600">기존</span>{' '}
+                                  {originalEvent ? `${originalEvent.title} · ${formatEventSchedule(originalEvent)}` : '없음'}
+                                </div>
+                                <div className="text-emerald-700">
+                                  <span className="font-semibold">변경</span>{' '}
+                                  {changedEvent ? `${changedEvent.title} · ${formatEventSchedule(changedEvent)}` : '일정에서 제외됨'}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {lastResultChanges.length === 0 && <div className="text-slate-500">변경된 일정이 없습니다.</div>}
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <div className="rounded-[18px] border border-slate-200/80 bg-white/70 p-3 text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
-                    결과 확인을 누르면 최근 AI 제안이 여기에 표시됩니다.
+                    상황을 입력하고 AI 일정 재설계를 요청해 보세요.
+                  </div>
+                )}
+                {rescheduleError && (
+                  <div className="rounded-[18px] border border-rose-200/80 bg-rose-50/80 p-3 text-rose-700">
+                    <div className="mb-1 font-semibold">요청 오류</div>
+                    <div>{rescheduleError}</div>
                   </div>
                 )}
               </div>
             </div>
 
             <form onSubmit={handleSubmitPrompt} className="space-y-2">
-              <input
-                type="text"
+              <textarea
                 value={userInput}
                 onChange={(e) => setUserInput(e.target.value)}
                 placeholder="상황을 입력하세요..."
-                className="w-full rounded-[16px] border border-white/70 bg-white/80 px-4 py-3 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-sky-300 focus:ring-2 focus:ring-sky-100"
+                rows={4}
+                className="min-h-[104px] w-full resize-y rounded-[16px] border border-white/70 bg-white/80 px-4 py-3 text-sm leading-6 text-slate-700 outline-none placeholder:text-slate-400 focus:border-sky-300 focus:ring-2 focus:ring-sky-100"
               />
               <button
                 type="submit"
-                className="w-full rounded-[16px] bg-slate-900 px-4 py-3 text-[13px] font-semibold text-white shadow-[0_10px_24px_rgba(15,23,42,0.14)] transition hover:-translate-y-0.5 hover:bg-slate-800"
+                disabled={isRescheduling || !userInput.trim()}
+                className="w-full rounded-[16px] bg-slate-900 px-4 py-3 text-[13px] font-semibold text-white shadow-[0_10px_24px_rgba(15,23,42,0.14)] transition hover:-translate-y-0.5 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
               >
-                결과 확인
+                {isRescheduling ? 'AI가 재설계 중...' : 'AI 일정 재설계'}
               </button>
             </form>
           </div>
