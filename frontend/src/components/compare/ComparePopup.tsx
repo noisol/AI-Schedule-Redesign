@@ -3,6 +3,7 @@
 import React from "react";
 import { ScheduleEvent } from "../../types";
 import { getScheduleActionLabel } from "../../lib/schedule-change";
+import { formatEventDateTime } from "../../lib/datetime";
 
 interface ComparePopupProps {
   isOpen: boolean;
@@ -89,7 +90,7 @@ export default function ComparePopup({
                     {relatedCurrentSchedules.map((event) => (
                       <div key={`current-${event.id}`} className="rounded-[12px] border border-slate-200/70 bg-slate-50/80 px-2 py-1.5">
                         <div className="font-medium text-slate-700">{event.title}</div>
-                        <div className="mt-0.5 text-[11px] text-slate-500">{event.date} · {event.startTime} - {event.endTime}</div>
+                        <div className="mt-0.5 text-[11px] text-slate-500">{formatEventDateTime(event.startAt, event.endAt)}</div>
                       </div>
                     ))}
                     {relatedCurrentSchedules.length === 0 && <div className="text-slate-400">기존 일정 없음</div>}
@@ -102,7 +103,7 @@ export default function ComparePopup({
                     {relatedRescheduledEvents.map((event) => (
                       <div key={event.id} className="rounded-[12px] border border-slate-200/70 bg-white/70 px-2 py-1.5">
                         <div className="font-medium text-slate-700">{event.title}</div>
-                        <div className="mt-0.5 text-[11px] text-slate-500">{event.date} · {event.startTime} - {event.endTime}</div>
+                        <div className="mt-0.5 text-[11px] text-slate-500">{formatEventDateTime(event.startAt, event.endAt)}</div>
                       </div>
                     ))}
                     {relatedRescheduledEvents.length === 0 && <div className="text-slate-400">취소되어 예상 일정에서 제외됨</div>}

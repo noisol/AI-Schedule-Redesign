@@ -1,4 +1,5 @@
 import type { ScheduleEvent } from "../types";
+import { combineDateAndTime, toTimeMinutes } from "./datetime";
 
 const KEYS = {
   schedules: "ai-day-rescheduler:schedules",
@@ -33,11 +34,57 @@ export function setLocalStorage<T>(key: string, value: T) {
   if (canUseStorage()) window.localStorage.setItem(key, JSON.stringify(value));
 }
 
-export const loadSchedules = (fallback: ScheduleEvent[]) => getLocalStorage<ScheduleEvent[]>(KEYS.schedules) ?? fallback;
+const normalizeScheduleEvent = (value: unknown): ScheduleEvent | null => {
+  if (!value || typeof value !== "object") return null;
+  const event = value as Record<string, unknown>;
+  if (typeof event.id !== "string" || typeof event.title !== "string" || typeof event.priority !== "string") return null;
+
+  if (typeof event.startAt === "string" && typeof event.endAt === "string") {
+    return {
+      id: event.id,
+      title: event.title,
+      startAt: event.startAt,
+      endAt: event.endAt,
+      priority: event.priority as ScheduleEvent["priority"],
+    };
+  }
+
+  if (typeof event.date !== "string" || typeof event.startTime !== "string" || typeof event.endTime !== "string") return null;
+  const endDayOffset = toTimeMinutes(event.endTime) <= toTimeMinutes(event.startTime) ? 1 : 0;
+  return {
+    id: event.id,
+    title: event.title,
+    startAt: combineDateAndTime(event.date, event.startTime),
+    endAt: combineDateAndTime(event.date, event.endTime, endDayOffset),
+    priority: event.priority as ScheduleEvent["priority"],
+  };
+};
+
+const normalizeEvents = (value: unknown) =>
+  Array.isArray(value)
+    ? value.map(normalizeScheduleEvent).filter((event): event is ScheduleEvent => event !== null)
+    : [];
+
+export const loadSchedules = (fallback: ScheduleEvent[]) => {
+  const saved = getLocalStorage<unknown>(KEYS.schedules);
+  if (saved === null) return fallback;
+  const normalized = normalizeEvents(saved);
+  return normalized.length > 0 ? normalized : fallback;
+};
 export const saveSchedules = (value: ScheduleEvent[]) => setLocalStorage(KEYS.schedules, value);
 export const loadDraftInput = (fallback: string) => getLocalStorage<string>(KEYS.draft) ?? fallback;
 export const saveDraftInput = (value: string) => setLocalStorage(KEYS.draft, value);
-export const loadLastResult = () => getLocalStorage<RescheduleOption>(KEYS.lastResult);
+export const loadLastResult = () => {
+  const saved = getLocalStorage<unknown>(KEYS.lastResult);
+  if (!saved || typeof saved !== "object") return null;
+  const result = saved as RescheduleOption & { originalEvents?: unknown; rescheduledEvents?: unknown };
+  if (!Array.isArray(result.rescheduledEvents) || !Array.isArray(result.changes)) return null;
+  return {
+    ...result,
+    originalEvents: result.originalEvents ? normalizeEvents(result.originalEvents) : undefined,
+    rescheduledEvents: normalizeEvents(result.rescheduledEvents),
+  } as RescheduleOption;
+};
 export const saveLastResult = (value: RescheduleOption) => setLocalStorage(KEYS.lastResult, value);
 export const clearLastResult = () => {
   if (canUseStorage()) window.localStorage.removeItem(KEYS.lastResult);

@@ -1,4 +1,5 @@
 import { ScheduleEvent } from "../../types";
+import { getDatePart, getTimePart } from "../../lib/datetime";
 
 interface EventCardProps {
   event: ScheduleEvent;
@@ -9,11 +10,6 @@ interface EventCardProps {
   onClick?: () => void;
 }
 
-const timeToMinutes = (time: string) => {
-  const [hours, minutes] = time.split(":").map(Number);
-  return hours * 60 + minutes;
-};
-
 export default function EventCard({
   event,
   visibleStartMinutes = 0,
@@ -22,9 +18,10 @@ export default function EventCard({
   displayEndMinutes,
   onClick,
 }: EventCardProps) {
-  const startMinutes = (displayStartMinutes ?? timeToMinutes(event.startTime)) - visibleStartMinutes + topOffset;
-  const endMinutes = (displayEndMinutes ?? timeToMinutes(event.endTime)) - visibleStartMinutes + topOffset;
+  const startMinutes = (displayStartMinutes ?? 0) - visibleStartMinutes + topOffset;
+  const endMinutes = (displayEndMinutes ?? 0) - visibleStartMinutes + topOffset;
   const duration = Math.max(36, endMinutes - startMinutes);
+  const crossesMidnight = getDatePart(event.startAt) !== getDatePart(event.endAt);
 
   const getPriorityStyles = (priority: string) => {
     switch (priority) {
@@ -58,7 +55,7 @@ export default function EventCard({
         <div className="truncate text-[11px] font-semibold leading-tight">{event.title}</div>
       </div>
       <div className="mt-1 text-[9px] leading-tight whitespace-nowrap opacity-80">
-        {event.startTime} - {event.endTime}
+        {getTimePart(event.startAt)} - {crossesMidnight ? "다음 날 " : ""}{getTimePart(event.endAt)}
       </div>
     </div>
   );

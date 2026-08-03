@@ -23,12 +23,20 @@ import {
 import type { RescheduleOption } from '../lib/storage';
 import { rescheduleResponseSchema } from '../lib/validation/reschedule';
 import { getScheduleActionLabel } from '../lib/schedule-change';
+import {
+  addMinutesToAt,
+  combineDateAndTime,
+  formatEventDateTime,
+  getPlanningDate,
+  getTimePart,
+  toTimeMinutes,
+} from '../lib/datetime';
 import { ScheduleEvent } from '../types';
 
 const subscribeToHydration = () => () => {};
 
 const formatEventSchedule = (event: ScheduleEvent) =>
-  `${event.date} · ${event.startTime} - ${event.endTime}`;
+  formatEventDateTime(event.startAt, event.endAt);
 
 const mergeRescheduledEvents = (
   currentEvents: ScheduleEvent[],
@@ -50,6 +58,22 @@ const mergeRescheduledEvents = (
     ...merged,
     ...proposedEvents.filter((event) => !currentIds.has(event.id) && !cancelledIds.has(event.id)),
   ];
+};
+
+const getScheduleSignature = (events: ScheduleEvent[]) => JSON.stringify(
+  [...events]
+    .map(({ title, startAt, endAt, priority }) => ({ title, startAt, endAt, priority }))
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+);
+
+const removeDuplicateRescheduleOptions = (options: RescheduleOption[]) => {
+  const signatures = new Set<string>();
+  return options.filter((option) => {
+    const signature = getScheduleSignature(option.rescheduledEvents);
+    if (signatures.has(signature)) return false;
+    signatures.add(signature);
+    return true;
+  });
 };
 
 const formatDateKey = (date: Date) => {
@@ -148,17 +172,13 @@ export default function Home() {
     setIsPopupOpen(false);
   };
 
-  const handleOpenAddModal = (date?: string, startTime?: string) => {
-    const start = startTime || '09:00';
-    const startHour = parseInt(start.split(':')[0], 10);
-    const endHour = Math.min(startHour + 1, 23);
-    const end = `${String(endHour).padStart(2, '0')}:00`;
+  const handleOpenAddModal = (startAt?: string) => {
+    const start = startAt || combineDateAndTime(formatDateKey(weekStart), '09:00');
 
     setModalMode('create');
     setModalInitialData({
-      date: date || formatDateKey(weekStart),
-      startTime: start,
-      endTime: end,
+      startAt: start,
+      endAt: addMinutesToAt(start, 60),
     });
     setIsModalOpen(true);
   };
@@ -170,20 +190,11 @@ export default function Home() {
     setIsModalOpen(true);
   };
 
-  const getDurationMinutes = (startTime: string, endTime: string) => {
-    const toMinutes = (time: string) => {
-      const [hours, minutes] = time.split(':').map(Number);
-      return hours * 60 + minutes;
-    };
-
-    return Math.max(30, toMinutes(endTime) - toMinutes(startTime));
-  };
-
   const isTimeConflict = (candidate: Partial<ScheduleEvent>, existingEvents: ScheduleEvent[], ignoredId?: string) => {
-    const candidateStart = getDurationMinutes('00:00', candidate.startTime || '00:00');
-    const candidateEnd = getDurationMinutes('00:00', candidate.endTime || '00:00');
+    const candidateStart = candidate.startAt ? Date.parse(candidate.startAt) : Number.NaN;
+    const candidateEnd = candidate.endAt ? Date.parse(candidate.endAt) : Number.NaN;
 
-    if (candidateEnd <= candidateStart) {
+    if (!Number.isFinite(candidateStart) || !Number.isFinite(candidateEnd) || candidateEnd <= candidateStart) {
       return true;
     }
 
@@ -192,29 +203,34 @@ export default function Home() {
         return false;
       }
 
-      if (event.date !== candidate.date) {
-        return false;
-      }
-
-      const existingStart = getDurationMinutes('00:00', event.startTime);
-      const existingEnd = getDurationMinutes('00:00', event.endTime);
+      const existingStart = Date.parse(event.startAt);
+      const existingEnd = Date.parse(event.endAt);
 
       return candidateStart < existingEnd && candidateEnd > existingStart;
     });
   };
 
-  // 새 일정 저장 시 날짜/시간/충돌 여부를 함께 검증한다.
+  // 새 일정 저장 시 절대 날짜·시간과 충돌 여부를 함께 검증한다.
   const handleSaveSchedule = (newEventData: Partial<ScheduleEvent>) => {
-    const candidateDate = newEventData.date || modalInitialData.date || formatDateKey(weekStart);
-    const candidateStart = newEventData.startTime || '09:00';
-    const candidateEnd = newEventData.endTime || '10:00';
+    const candidateStartAt = newEventData.startAt || modalInitialData.startAt;
+    const candidateEndAt = newEventData.endAt || modalInitialData.endAt;
     const candidate = {
       ...newEventData,
-      date: candidateDate,
-      startTime: candidateStart,
-      endTime: candidateEnd,
+      startAt: candidateStartAt,
+      endAt: candidateEndAt,
       priority: newEventData.priority || 'medium',
     } as Partial<ScheduleEvent>;
+
+    if (!candidateStartAt || !candidateEndAt || Date.parse(candidateEndAt) <= Date.parse(candidateStartAt)) {
+      window.alert('종료 날짜·시간은 시작 날짜·시간보다 늦어야 해요.');
+      return false;
+    }
+
+    const endMoment = addMinutesToAt(candidateEndAt, -1);
+    if (getPlanningDate(candidateStartAt, sleepWakeTime) !== getPlanningDate(endMoment, sleepWakeTime)) {
+      window.alert('하나의 일정은 같은 생활일 안에 있어야 해요. 자정을 넘길 수는 있지만 다음 기상 시간 전에는 끝나야 합니다.');
+      return false;
+    }
 
     const currentId = modalMode === 'edit' && newEventData.id ? newEventData.id : undefined;
     const hasConflict = isTimeConflict(candidate, schedules, currentId);
@@ -231,9 +247,8 @@ export default function Home() {
             ? {
                 ...event,
                 title: newEventData.title || event.title,
-                date: candidateDate,
-                startTime: candidateStart,
-                endTime: candidateEnd,
+                startAt: candidateStartAt || event.startAt,
+                endAt: candidateEndAt || event.endAt,
                 priority: newEventData.priority || event.priority,
               }
             : event,
@@ -245,9 +260,8 @@ export default function Home() {
     const newSchedule: ScheduleEvent = {
       id: `event-${Date.now()}`,
       title: newEventData.title || '새 일정',
-      date: candidateDate,
-      startTime: candidateStart,
-      endTime: candidateEnd,
+      startAt: candidateStartAt || combineDateAndTime(formatDateKey(weekStart), '09:00'),
+      endAt: candidateEndAt || combineDateAndTime(formatDateKey(weekStart), '10:00'),
       priority: newEventData.priority || 'medium',
     };
 
@@ -306,7 +320,7 @@ export default function Home() {
         throw new Error(result.warnings[0] ?? '재설계 가능한 일정을 만들지 못했습니다.');
       }
 
-      const nextOptions: RescheduleOption[] = result.options.map((option, index) => {
+      const nextOptions = removeDuplicateRescheduleOptions(result.options.map((option, index) => {
         const changes = option.changes.map((change) => ({
           eventId: change.eventId,
           action: change.action,
@@ -321,7 +335,7 @@ export default function Home() {
           rescheduledEvents: mergeRescheduledEvents(schedules, option.rescheduledEvents, changes),
           changes,
         };
-      });
+      }));
 
       setRescheduleOptions(nextOptions);
       setSelectedOptionId(null);
@@ -349,6 +363,7 @@ export default function Home() {
 
   const selectedEvent = schedules.find((event) => event.id === selectedEventId) ?? null;
   const lastResultChanges = lastResult?.changes.filter((change) => change.action !== 'kept') ?? [];
+  const bedtimeIsNextDay = toTimeMinutes(sleepBedtime) <= toTimeMinutes(sleepWakeTime);
 
   if (!isHydrated) {
     return <div className="min-h-screen" aria-hidden="true" />;
@@ -409,20 +424,21 @@ export default function Home() {
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">수면 패턴</label>
             <div className="flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-2 text-sm text-slate-600">
-              <span>취침</span>
-              <input
-                type="time"
-                value={sleepBedtime}
-                onChange={(e) => setSleepBedtime(e.target.value)}
-                className="rounded-full border border-slate-200/80 bg-white px-2 py-1 text-sm outline-none"
-              />
-            </div>
-            <div className="flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-2 text-sm text-slate-600">
               <span>기상</span>
               <input
                 type="time"
                 value={sleepWakeTime}
                 onChange={(e) => setSleepWakeTime(e.target.value)}
+                className="rounded-full border border-slate-200/80 bg-white px-2 py-1 text-sm outline-none"
+              />
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-2 text-sm text-slate-600">
+              <span>취침</span>
+              {bedtimeIsNextDay && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">다음 날</span>}
+              <input
+                type="time"
+                value={sleepBedtime}
+                onChange={(e) => setSleepBedtime(e.target.value)}
                 className="rounded-full border border-slate-200/80 bg-white px-2 py-1 text-sm outline-none"
               />
             </div>
@@ -459,7 +475,7 @@ export default function Home() {
                 weekStart={weekStart}
                 sleepBedtime={sleepBedtime}
                 sleepWakeTime={sleepWakeTime}
-                onCellClick={(date, startTime) => handleOpenAddModal(date, startTime)}
+                onCellClick={handleOpenAddModal}
                 onEventClick={handleOpenEditModal}
               />
             </div>
@@ -470,7 +486,7 @@ export default function Home() {
                   N
                 </div>
                 <div className="text-sm text-slate-600">
-                  {selectedEvent ? `${selectedEvent.title} · ${selectedEvent.startTime}` : '카드를 눌러 일정 상세를 확인해 보세요.'}
+                  {selectedEvent ? `${selectedEvent.title} · ${getTimePart(selectedEvent.startAt)}` : '카드를 눌러 일정 상세를 확인해 보세요.'}
                 </div>
               </div>
             </div>

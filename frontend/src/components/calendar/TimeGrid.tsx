@@ -1,13 +1,19 @@
 import React, { useEffect, useRef } from "react";
 import { ScheduleEvent } from "../../types";
 import EventCard from "./EventCard";
+import {
+  addMinutesToAt,
+  combineDateAndTime,
+  getPlanningDate,
+  toTimeMinutes,
+} from "../../lib/datetime";
 
 interface TimeGridProps {
   events: ScheduleEvent[];
   weekStart: Date;
   sleepBedtime?: string;
   sleepWakeTime?: string;
-  onCellClick?: (date: string, startTime: string) => void;
+  onCellClick?: (startAt: string) => void;
   onEventClick?: (event: ScheduleEvent) => void;
 }
 
@@ -36,22 +42,29 @@ const getWeekDays = (weekStart: Date) => {
 
 export default function TimeGrid({ events, weekStart, sleepBedtime, sleepWakeTime, onCellClick, onEventClick }: TimeGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const weekDays = getWeekDays(weekStart);
+  const weekDateSet = new Set(weekDays.map((day) => day.date));
 
-  const toMinutes = (time: string) => {
-    const [hours, minutes] = time.split(":").map(Number);
-    return hours * 60 + minutes;
-  };
-
-  // 수면 구간은 캘린더에서 숨기고, 실제 보이는 시간대만 남긴다.
-  const bedtimeMinutes = sleepBedtime ? toMinutes(sleepBedtime) : null;
-  const wakeTimeMinutes = sleepWakeTime ? toMinutes(sleepWakeTime) : null;
+  // 각 날짜 열은 기상 시각부터 취침 시각까지 하나의 생활일로 표시한다.
+  const bedtimeMinutes = sleepBedtime ? toTimeMinutes(sleepBedtime) : null;
+  const wakeTimeMinutes = sleepWakeTime ? toTimeMinutes(sleepWakeTime) : null;
   const visibleStartMinutes = wakeTimeMinutes ?? 0;
   // 00:00처럼 취침 시간이 기상 시간보다 이르면 다음 날 시간으로 취급한다.
-  const visibleEndMinutes = bedtimeMinutes === null
+  const configuredEndMinutes = bedtimeMinutes === null
     ? 24 * 60
     : bedtimeMinutes <= visibleStartMinutes
       ? bedtimeMinutes + 24 * 60
       : bedtimeMinutes;
+  const latestEventEndMinutes = events.reduce((latest, event) => {
+    const planningDate = getPlanningDate(event.startAt, sleepWakeTime ?? "07:00");
+    const endPlanningDate = getPlanningDate(addMinutesToAt(event.endAt, -1), sleepWakeTime ?? "07:00");
+    if (!weekDateSet.has(planningDate) || endPlanningDate !== planningDate) return latest;
+    const planningDayStart = Date.parse(combineDateAndTime(planningDate, "00:00"));
+    const endMinutes = (Date.parse(event.endAt) - planningDayStart) / 60_000;
+    return Math.max(latest, endMinutes);
+  }, configuredEndMinutes);
+  // 취침 설정을 넘어가는 실제 일정이 있으면 그 일정의 종료 시각까지 축을 확장한다.
+  const visibleEndMinutes = Math.max(configuredEndMinutes, latestEventEndMinutes);
   const visibleDurationMinutes = Math.max(60, visibleEndMinutes - visibleStartMinutes);
   const topOffset = 24;
 
@@ -71,18 +84,6 @@ export default function TimeGrid({ events, weekStart, sleepBedtime, sleepWakeTim
   };
 
   const visibleHours = Array.from({ length: Math.max(1, Math.floor(visibleDurationMinutes / 60) + 1) }, (_, index) => visibleStartMinutes + index * 60);
-  const toVisibleMinutes = (time: string) => {
-    const minutes = toMinutes(time);
-    return visibleEndMinutes > 24 * 60 && minutes < visibleStartMinutes
-      ? minutes + 24 * 60
-      : minutes;
-  };
-  const visibleEvents = events.filter((event) => {
-    const startMinutes = toVisibleMinutes(event.startTime);
-    let endMinutes = toVisibleMinutes(event.endTime);
-    if (endMinutes <= startMinutes) endMinutes += 24 * 60;
-    return startMinutes >= visibleStartMinutes && endMinutes <= visibleEndMinutes;
-  });
   // 수면 구간이 잘린 뒤의 위치를 기준으로 시간축과 이벤트를 다시 배치한다.
   const getPosition = (minutes: number) => {
     return minutes - visibleStartMinutes + topOffset;
@@ -94,8 +95,6 @@ export default function TimeGrid({ events, weekStart, sleepBedtime, sleepWakeTim
       containerRef.current.scrollTop = 0;
     }
   }, [visibleStartMinutes, visibleEndMinutes]);
-
-  const weekDays = getWeekDays(weekStart);
 
   return (
     <div className="flex h-full w-full min-h-0 flex-col overflow-hidden rounded-[24px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(248,250,252,0.9))] text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]">
@@ -141,7 +140,17 @@ export default function TimeGrid({ events, weekStart, sleepBedtime, sleepWakeTim
             </div>
 
             {weekDays.map((day) => {
-              const dayEvents = visibleEvents.filter((e) => e.date === day.date);
+              const dayStartAt = combineDateAndTime(day.date, "00:00");
+              const dayStartEpoch = Date.parse(dayStartAt);
+              const visibleWindowStart = dayStartEpoch + visibleStartMinutes * 60_000;
+              const visibleWindowEnd = dayStartEpoch + visibleEndMinutes * 60_000;
+              const dayEvents = events
+                .filter((event) => Date.parse(event.endAt) > visibleWindowStart && Date.parse(event.startAt) < visibleWindowEnd)
+                .map((event) => ({
+                  event,
+                  displayStartMinutes: Math.max(visibleStartMinutes, (Date.parse(event.startAt) - dayStartEpoch) / 60_000),
+                  displayEndMinutes: Math.min(visibleEndMinutes, (Date.parse(event.endAt) - dayStartEpoch) / 60_000),
+                }));
 
               return (
                 <div key={day.date} className="relative h-full">
@@ -152,16 +161,14 @@ export default function TimeGrid({ events, weekStart, sleepBedtime, sleepWakeTim
                         key={minute}
                         className="absolute h-[60px] w-full cursor-pointer transition-colors hover:bg-sky-50/70"
                         style={{ top: `${getPosition(minute)}px` }}
-                        onClick={() => onCellClick?.(day.date, timeString)}
+                        onClick={() => onCellClick?.(
+                          combineDateAndTime(day.date, timeString, Math.floor(minute / (24 * 60))),
+                        )}
                       />
                     );
                   })}
 
-                  {dayEvents.map((event) => {
-                    const displayStartMinutes = toVisibleMinutes(event.startTime);
-                    let displayEndMinutes = toVisibleMinutes(event.endTime);
-                    if (displayEndMinutes <= displayStartMinutes) displayEndMinutes += 24 * 60;
-
+                  {dayEvents.map(({ event, displayStartMinutes, displayEndMinutes }) => {
                     return (
                       <EventCard
                         key={event.id}

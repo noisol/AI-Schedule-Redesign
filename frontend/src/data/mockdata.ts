@@ -1,6 +1,7 @@
 // frontend/src/data/mockdata.tsx
 
 import { ScheduleEvent } from "../types";
+import { combineDateAndTime } from "../lib/datetime";
 
 const today = new Date();
 const getDateKey = (offsetDays: number) => {
@@ -17,25 +18,22 @@ export const mockSchedules: ScheduleEvent[] = [
   {
     id: "event-001",
     title: "운동",
-    date: getDateKey(0),
-    startTime: "08:00",
-    endTime: "09:30",
+    startAt: combineDateAndTime(getDateKey(0), "08:00"),
+    endAt: combineDateAndTime(getDateKey(0), "09:30"),
     priority: "high"
   },
   {
     id: "event-002",
     title: "팀 주간 회의",
-    date: getDateKey(1),
-    startTime: "10:00",
-    endTime: "11:30",
+    startAt: combineDateAndTime(getDateKey(1), "10:00"),
+    endAt: combineDateAndTime(getDateKey(1), "11:30"),
     priority: "high"
   },
   {
     id: "event-003",
     title: "캡스톤 멘토링",
-    date: getDateKey(3),
-    startTime: "14:00",
-    endTime: "16:00",
+    startAt: combineDateAndTime(getDateKey(3), "14:00"),
+    endAt: combineDateAndTime(getDateKey(3), "16:00"),
     priority: "fixed"
   }
 ];

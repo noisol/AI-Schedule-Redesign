@@ -26,10 +26,15 @@ export const scheduleChangeActionSchema = z.enum([
 export const scheduleEventSchema = z.object({
   id: z.string(),
   title: z.string(),
-  date: z.string(),
-  startTime: z.string(),
-  endTime: z.string(),
+  startAt: z.iso.datetime({ offset: true }),
+  endAt: z.iso.datetime({ offset: true }),
   priority: schedulePrioritySchema,
+}).refine((event) => Date.parse(event.endAt) > Date.parse(event.startAt), {
+  message: "endAt must be later than startAt",
+  path: ["endAt"],
+}).refine((event) => Date.parse(event.endAt) - Date.parse(event.startAt) <= 24 * 60 * 60 * 1000, {
+  message: "an event cannot span more than 24 hours",
+  path: ["endAt"],
 });
 
 export const userPreferencesSchema = z.object({
@@ -56,8 +61,8 @@ export const interpretationSchema = z.object({
   title: z.string().nullable(),
   additionalDurationMinutes: z.number().int().nullable(),
   newDurationMinutes: z.number().int().nullable(),
-  newStartTime: z.string().nullable(),
-  newEndTime: z.string().nullable(),
+  newStartAt: z.string().nullable(),
+  newEndAt: z.string().nullable(),
   description: z.string(),
   confidence: z.number().min(0).max(1),
 });
@@ -65,10 +70,10 @@ export const interpretationSchema = z.object({
 export const scheduleChangeSchema = z.object({
   eventId: z.string(),
   action: scheduleChangeActionSchema,
-  previousStartTime: z.string().nullable(),
-  previousEndTime: z.string().nullable(),
-  newStartTime: z.string().nullable(),
-  newEndTime: z.string().nullable(),
+  previousStartAt: z.string().nullable(),
+  previousEndAt: z.string().nullable(),
+  newStartAt: z.string().nullable(),
+  newEndAt: z.string().nullable(),
   reason: z.string(),
 });
 

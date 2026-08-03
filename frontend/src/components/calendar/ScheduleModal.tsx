@@ -1,7 +1,8 @@
 // frontend/src/components/calendar/ScheduleModal.tsx
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { ScheduleEvent } from "../../types";
+import { fromDateTimeLocalValue, toDateTimeLocalValue } from "../../lib/datetime";
 
 interface ScheduleModalProps {
   isOpen: boolean;
@@ -22,33 +23,48 @@ export default function ScheduleModal({
   mode = "create",
   existingEvent,
 }: ScheduleModalProps) {
-  const [title, setTitle] = useState("");
-  const [date, setDate] = useState("");
-  const [startTime, setStartTime] = useState("09:00");
-  const [endTime, setEndTime] = useState("10:00");
-  const [priority, setPriority] = useState<ScheduleEvent["priority"]>("medium");
-
-  useEffect(() => {
-    if (isOpen) {
-      const eventData = existingEvent ?? initialData;
-      setTitle(eventData?.title || "");
-      setDate(eventData?.date || "");
-      setStartTime(eventData?.startTime || "09:00");
-      setEndTime(eventData?.endTime || "10:00");
-      setPriority(eventData?.priority || "medium");
-    }
-  }, [isOpen, existingEvent, initialData]);
-
   if (!isOpen) return null;
+
+  const eventData = existingEvent ?? initialData;
+  return (
+    <ScheduleModalForm
+      key={`${mode}-${existingEvent?.id ?? eventData?.startAt ?? "new"}`}
+      onClose={onClose}
+      onSave={onSave}
+      onDelete={onDelete}
+      mode={mode}
+      existingEvent={existingEvent}
+      eventData={eventData}
+    />
+  );
+}
+
+function ScheduleModalForm({
+  onClose,
+  onSave,
+  onDelete,
+  mode,
+  existingEvent,
+  eventData,
+}: Omit<ScheduleModalProps, "isOpen" | "initialData"> & { eventData?: Partial<ScheduleEvent> }) {
+  const [title, setTitle] = useState(eventData?.title || "");
+  const [startAt, setStartAt] = useState(toDateTimeLocalValue(eventData?.startAt));
+  const [endAt, setEndAt] = useState(toDateTimeLocalValue(eventData?.endAt));
+  const [priority, setPriority] = useState<ScheduleEvent["priority"]>(eventData?.priority || "medium");
+  const durationMinutes = startAt && endAt
+    ? (Date.parse(fromDateTimeLocalValue(endAt)) - Date.parse(fromDateTimeLocalValue(startAt))) / 60_000
+    : 0;
+  const durationLabel = durationMinutes > 0
+    ? `${Math.floor(durationMinutes / 60)}시간${durationMinutes % 60 ? ` ${durationMinutes % 60}분` : ""}`
+    : null;
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     const shouldClose = onSave({
       id: existingEvent?.id,
       title,
-      date: existingEvent?.date ?? (date || initialData?.date),
-      startTime,
-      endTime,
+      startAt: fromDateTimeLocalValue(startAt),
+      endAt: fromDateTimeLocalValue(endAt),
       priority,
     });
 
@@ -64,8 +80,8 @@ export default function ScheduleModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-md rounded-[28px] p-6 shadow-[0_30px_90px_rgba(15,23,42,0.12)]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 p-4 backdrop-blur-sm">
+      <div className="glass-panel my-auto w-full max-w-xl rounded-[28px] p-5 shadow-[0_30px_90px_rgba(15,23,42,0.12)] sm:p-6">
         <h2 className="mb-4 text-[22px] font-semibold tracking-[-0.02em] text-slate-900">
           {mode === "edit" ? "일정 수정" : "새 일정 추가"}
         </h2>
@@ -83,43 +99,40 @@ export default function ScheduleModal({
             />
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">날짜</label>
-            <input
-              type="date"
-              required
-              className="w-full rounded-[14px] border border-white/70 bg-white/80 px-3 py-2.5 text-sm text-slate-700 outline-none"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-slate-700">시작 날짜·시간</label>
+              <input
+                type="datetime-local"
+                required
+                className="w-full rounded-[14px] border border-white/70 bg-white/80 px-3 py-2.5 text-sm text-slate-700 outline-none"
+                value={startAt}
+                onChange={(e) => setStartAt(e.target.value)}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-slate-700">종료 날짜·시간</label>
+              <input
+                type="datetime-local"
+                required
+                className="w-full rounded-[14px] border border-white/70 bg-white/80 px-3 py-2.5 text-sm text-slate-700 outline-none"
+                value={endAt}
+                min={startAt}
+                onChange={(e) => setEndAt(e.target.value)}
+              />
+            </div>
           </div>
 
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <label className="mb-1 block text-sm font-medium text-slate-700">시작 시간</label>
-              <input
-                type="time"
-                required
-                className="w-full rounded-[14px] border border-white/70 bg-white/80 px-3 py-2.5 text-sm text-slate-700 outline-none"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-              />
-            </div>
-            <div className="flex-1">
-              <label className="mb-1 block text-sm font-medium text-slate-700">종료 시간</label>
-              <input
-                type="time"
-                required
-                className="w-full rounded-[14px] border border-white/70 bg-white/80 px-3 py-2.5 text-sm text-slate-700 outline-none"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-              />
-            </div>
-          </div>
+          {durationLabel && (
+            <p className={`rounded-xl px-3 py-2 text-xs ${durationMinutes > 24 * 60 ? "bg-rose-50 text-rose-600" : "bg-sky-50 text-slate-600"}`}>
+              일정 길이: <span className="font-semibold">{durationLabel}</span>
+              {durationMinutes > 24 * 60 && " · 날짜를 다시 확인해 주세요."}
+            </p>
+          )}
 
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">우선순위</label>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {(["high", "medium", "low", "fixed"] as const).map((p) => (
                 <label key={p} className="flex-1 cursor-pointer">
                   <input
@@ -141,7 +154,7 @@ export default function ScheduleModal({
             </div>
           </div>
 
-          <div className="mt-2 flex justify-end gap-2 border-t border-slate-200/70 pt-4">
+          <div className="mt-2 flex flex-wrap justify-end gap-2 border-t border-slate-200/70 pt-4">
             {mode === "edit" && onDelete && (
               <button
                 type="button"

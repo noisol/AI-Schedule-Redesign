@@ -43,9 +43,8 @@ export async function GET() {
     {
       "id": "event-1",
       "title": "오전 회의",
-      "date": "2026-08-02",
-      "startTime": "10:00",
-      "endTime": "11:00",
+      "startAt": "2026-08-02T10:00:00+09:00",
+      "endAt": "2026-08-02T11:00:00+09:00",
       "priority": "high"
     }
   ],
@@ -102,9 +101,8 @@ export async function GET() {
             {
               id: "event-1",
               title: "오전 회의",
-              date: "2026-08-02",
-              startTime: "10:00",
-              endTime: "11:00",
+              startAt: "2026-08-02T10:00:00+09:00",
+              endAt: "2026-08-02T11:00:00+09:00",
               priority: "high",
             },
           ],
@@ -182,8 +180,8 @@ export async function POST(request: Request) {
           title: null,
           additionalDurationMinutes: null,
           newDurationMinutes: null,
-          newStartTime: null,
-          newEndTime: null,
+          newStartAt: null,
+          newEndAt: null,
           description: "AI 재설계 중 오류가 발생했습니다.",
           confidence: 0.0,
         },
