@@ -31,6 +31,12 @@ export default function ComparePopup({
 }: ComparePopupProps) {
   if (!isOpen) return null;
 
+  const optionGridClass = options.length === 1
+    ? "mx-auto w-full max-w-xl grid-cols-1"
+    : options.length === 2
+      ? "mx-auto w-full max-w-4xl grid-cols-2"
+      : "w-full grid-cols-3";
+
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm">
       <div className="glass-panel relative flex h-[760px] max-h-[92vh] w-full max-w-6xl flex-col rounded-[34px] p-6 shadow-[0_40px_120px_rgba(15,23,42,0.18)]">
@@ -39,11 +45,11 @@ export default function ComparePopup({
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
             AI 제안 결과
           </div>
-          <h2 className="text-[24px] font-semibold tracking-[-0.02em] text-slate-900">3가지 재설계안 중 하나를 골라보세요.</h2>
+          <h2 className="text-[24px] font-semibold tracking-[-0.02em] text-slate-900">{options.length}가지 재설계안 중 하나를 골라보세요.</h2>
           <p className="mt-2 text-sm text-slate-500">각 제안은 오늘의 흐름을 더 자연스럽게 이어주도록 구성되어 있습니다.</p>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-3 gap-4 overflow-hidden">
+        <div className={`grid min-h-0 flex-1 gap-4 overflow-hidden ${optionGridClass}`}>
           {options.map((option) => {
             const displayedChanges = option.changes.filter((change) => change.action !== "kept");
             const relatedIds = new Set(displayedChanges.map((change) => change.eventId));

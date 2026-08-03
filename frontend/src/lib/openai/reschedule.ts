@@ -149,11 +149,7 @@ function buildFallbackResponse(input: RescheduleRequestInput, debug = false): Re
     changes,
     warnings: [],
     requiresUserConfirmation: true,
-    options: [
-      optionTemplate,
-      { ...optionTemplate, optionId: `option-2-${Date.now()}`, summary: `${input.userInput}에 대한 두 번째 재설계 제안입니다.` },
-      { ...optionTemplate, optionId: `option-3-${Date.now()}`, summary: `${input.userInput}에 대한 세 번째 재설계 제안입니다.` },
-    ],
+    options: [optionTemplate],
     debug,
   };
 }
@@ -272,10 +268,10 @@ export async function createRescheduleResponse(input: RescheduleRequestInput): P
     "13. 사용자가 지연, 취소, 조기 완료, 새 일정 생성을 말한 경우 interpretation과 실제 변경 결과에 일관되게 반영하십시오.",
     "14. changes에는 실제로 값이 달라진 일정만 포함하십시오. 변경되지 않은 일정에 kept 항목을 만들지 마십시오.",
     "15. changes의 각 항목에는 정확한 이전 시간, 새 시간, 사용자가 이해할 수 있는 구체적인 한국어 이유를 작성하십시오.",
-    "16. 최상위 options 배열에는 서로 의미 있게 다른 대안 3개를 정확히 반환하십시오. 동일한 일정을 설명만 바꿔 반복하지 마십시오.",
+    "16. 최상위 options 배열에는 안전하고 의미 있게 다른 대안을 최대 3개 반환하십시오. 가능한 경우 3개를 우선하되, 유효한 대안이 2개뿐이면 2개, 1개뿐이면 1개만 반환하십시오.",
     "17. 각 options[].rescheduledEvents는 해당 안을 적용한 뒤의 전체 일정 목록이어야 하며, 변경되지 않은 기존 일정도 빠짐없이 포함하십시오.",
     "18. action=cancelled로 changes에 명시된 일정만 rescheduledEvents에서 제외할 수 있습니다.",
-    "19. 안전하고 충돌 없는 대안 3개를 만들 수 없다면 success=false로 설정하고, options 3개에는 원본 전체 일정을 그대로 넣으며 한국어 warnings로 이유를 설명하십시오.",
+    "19. 대안 수를 맞추기 위해 동일하거나 실행 불가능한 안을 만들지 마십시오. 안전한 대안이 하나도 없을 때만 success=false로 설정하고, 원본 전체 일정을 담은 옵션 1개와 한국어 warnings로 이유를 설명하십시오.",
     "20. interpretation.description, summary, options[].summary, changes[].reason, warnings의 모든 사용자 표시 문장은 자연스러운 한국어로 작성하십시오.",
     "21. 일정 제목은 원문을 유지하되, 영어 설명 문장은 반환하지 마십시오.",
     "22. JSON 이외의 마크다운, 주석, 추가 텍스트는 절대 반환하지 마십시오.",
@@ -362,7 +358,7 @@ export async function createRescheduleResponse(input: RescheduleRequestInput): P
           warnings: option.warnings ?? parsed.warnings ?? [],
           requiresUserConfirmation: option.requiresUserConfirmation ?? parsed.requiresUserConfirmation ?? true,
         }))
-      : [1, 2, 3].map((index) => ({
+      : [1].map((index) => ({
           optionId: `option-${index}-${Date.now()}`,
           summary: parsed.summary ? `${parsed.summary} (${index}안)` : `재설계 ${index}안`,
           rescheduledEvents: parsed.rescheduledEvents ?? [],
@@ -370,17 +366,6 @@ export async function createRescheduleResponse(input: RescheduleRequestInput): P
           warnings: parsed.warnings ?? [],
           requiresUserConfirmation: parsed.requiresUserConfirmation ?? true,
         }));
-
-    while (options.length < 3) {
-      options.push({
-        optionId: `option-${options.length + 1}-${Date.now()}`,
-        summary: parsed.summary ? `${parsed.summary} (${options.length + 1}안)` : `재설계 ${options.length + 1}안`,
-        rescheduledEvents: parsed.rescheduledEvents ?? [],
-        changes: parsed.changes ?? [],
-        warnings: parsed.warnings ?? [],
-        requiresUserConfirmation: parsed.requiresUserConfirmation ?? true,
-      });
-    }
 
     const normalized = {
       ...parsed,

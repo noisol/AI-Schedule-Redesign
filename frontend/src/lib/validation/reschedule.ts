@@ -91,7 +91,7 @@ export const rescheduleResponseSchema = z.object({
   changes: z.array(scheduleChangeSchema),
   warnings: z.array(z.string()),
   requiresUserConfirmation: z.boolean(),
-  options: z.array(rescheduledOptionSchema).length(3),
+  options: z.array(rescheduledOptionSchema).min(1).max(3),
   debug: z.boolean().optional(),
   rawOpenAIRequest: z.string().optional(),
   rawOpenAIResponse: z.string().optional(),

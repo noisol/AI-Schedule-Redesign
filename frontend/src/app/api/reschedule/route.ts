@@ -192,11 +192,7 @@ export async function POST(request: Request) {
         changes: [],
         warnings: ["AI 응답 생성 중 오류가 발생했습니다."],
         requiresUserConfirmation: false,
-        options: [
-          errorOption,
-          { ...errorOption, optionId: `option-error-2-${Date.now()}`, summary: "추가 제안이 없습니다." },
-          { ...errorOption, optionId: `option-error-3-${Date.now()}`, summary: "추가 제안이 없습니다." },
-        ],
+        options: [errorOption],
       },
       { status: 200 },
     );
