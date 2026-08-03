@@ -176,7 +176,10 @@ function parseContent(content: string | null | undefined) {
   }
 }
 
-export async function createRescheduleResponse(input: RescheduleRequestInput): Promise<RescheduleResponseInput> {
+export async function createRescheduleResponse(
+  input: RescheduleRequestInput,
+  retryAttempt = 0,
+): Promise<RescheduleResponseInput> {
   const parsedInput = rescheduleRequestSchema.safeParse(input);
 
   if (!parsedInput.success) {
@@ -193,6 +196,8 @@ export async function createRescheduleResponse(input: RescheduleRequestInput): P
   }
 
   const validatedInput = parsedInput.data;
+  const fixedEvents = validatedInput.schedules.filter((event) => event.priority === "fixed");
+  const adjustableEvents = validatedInput.schedules.filter((event) => event.priority !== "fixed");
   const apiKey = process.env.OPENAI_API_KEY;
   const preferredModel = getPreferredOpenAIModel();
 
@@ -201,6 +206,11 @@ export async function createRescheduleResponse(input: RescheduleRequestInput): P
     "새로운 일정을 처음부터 만드는 것이 아닙니다.",
     "사용자의 변경 상황이 하루 일정에 맞도록 기존 일정을 최소한으로 수정하십시오.",
     "사용자에게 표시되는 모든 설명과 요약은 반드시 자연스러운 한국어로 작성하십시오.",
+    "일정의 고정 여부는 입력 JSON의 priority 값만으로 판단하십시오. priority가 fixed인 일정만 고정 일정입니다.",
+    "priority가 low, medium, high인 일정은 고정 일정이 아니며 필요한 경우 규칙에 따라 조정할 수 있습니다.",
+    retryAttempt > 0
+      ? "이전 응답은 조정 가능한 일정이 있는데도 모두 고정 일정이라고 잘못 판단했습니다. 제공된 일정 사실을 다시 확인하고 실행 가능한 대안을 재검토하십시오."
+      : "",
     "",
     "다음 구조를 따르는 유효한 JSON 객체만 반환하십시오:",
     "{",
@@ -260,6 +270,8 @@ export async function createRescheduleResponse(input: RescheduleRequestInput): P
     "5. 변경과 무관한 일정은 ID, 제목, 날짜, 시작 시간, 종료 시간, 우선순위를 모두 원본 그대로 유지하십시오.",
     "6. 기존 일정이 유지되거나 변경되는 경우 원래 ID를 반드시 사용하고, 사용자가 요청한 새 일정에만 새로운 ID를 부여하십시오.",
     "7. priority=fixed 일정은 이동, 단축, 연장, 취소하지 마십시오. 요청을 충족할 수 없다면 경고를 작성하십시오.",
+    "7-1. 사용자가 변경을 요청한 대상의 priority가 fixed가 아니라면 그 일정을 고정 일정으로 취급하지 마십시오.",
+    "7-2. adjustableEvents가 하나 이상 있으면 '모든 일정이 고정되어 있다'고 판단하거나 경고하지 마십시오.",
     "8. priority=high 일정은 최대한 유지하고, 충돌 해결이 필요하면 medium 또는 low 일정을 먼저 조정하십시오.",
     "9. 일정 연장이 요청되면 대상 일정을 먼저 연장하고, 실제로 겹치는 이후 일정만 순서대로 조정하십시오.",
     "10. 모든 일정은 서로 겹치지 않아야 하며 startTime은 endTime보다 빨라야 합니다.",
@@ -301,6 +313,28 @@ export async function createRescheduleResponse(input: RescheduleRequestInput): P
             timezone: validatedInput.timezone,
             outputLanguage: "ko-KR",
             outputLanguageInstruction: "모든 요약, 설명, 변경 이유와 경고를 자연스러운 한국어로 작성하십시오.",
+            scheduleFacts: {
+              fixedEventCount: fixedEvents.length,
+              adjustableEventCount: adjustableEvents.length,
+              fixedEvents: fixedEvents.map((event) => ({
+                id: event.id,
+                title: event.title,
+                date: event.date,
+                startTime: event.startTime,
+                endTime: event.endTime,
+              })),
+              adjustableEvents: adjustableEvents.map((event) => ({
+                id: event.id,
+                title: event.title,
+                date: event.date,
+                startTime: event.startTime,
+                endTime: event.endTime,
+                priority: event.priority,
+              })),
+            },
+            retryInstruction: retryAttempt > 0
+              ? "조정 가능한 일정을 고정 일정으로 오인하지 말고, 가능한 1~3개의 대안을 다시 생성하십시오."
+              : undefined,
             userInput: validatedInput.userInput,
             preferences: validatedInput.preferences ?? defaultPreferences,
             schedules: validatedInput.schedules,
@@ -402,6 +436,11 @@ export async function createRescheduleResponse(input: RescheduleRequestInput): P
         option.changes,
       ),
     }));
+
+    if (!validatedResponse.success && retryAttempt === 0 && adjustableEvents.length > 0) {
+      console.warn("Retrying reschedule because adjustable events were present in a failed response.");
+      return createRescheduleResponse(validatedInput, retryAttempt + 1);
+    }
 
     return {
       ...validatedResponse,
