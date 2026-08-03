@@ -325,6 +325,7 @@ export default function Home() {
 
       setRescheduleOptions(nextOptions);
       setSelectedOptionId(null);
+      setUserInput('');
       setIsPopupOpen(true);
     } catch (error) {
       setRescheduleError(error instanceof Error ? error.message : 'AI 일정 재설계에 실패했습니다.');
